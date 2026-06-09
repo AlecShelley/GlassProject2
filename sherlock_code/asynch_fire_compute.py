@@ -142,6 +142,276 @@ def get_total_energy_cell_list_numba(pos, radius, k_spring, box_size):
                 i = next_p[i]
     return energy
 
+@njit
+def get_forces_energy_scalar_dt_numba(pos, radius, k_spring, box_size):
+    n_atoms = pos.shape[0]
+    forces = np.zeros_like(pos)
+    energy = 0.0
+    cutoff = 2.0 * radius
+    cutoff_sq = cutoff * cutoff
+    head, next_p, n_cells = build_cell_list(pos, box_size, cutoff)
+    
+    for cx in range(n_cells):
+        for cy in range(n_cells):
+            i = head[cx, cy]
+            while i != -1:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        nx = (cx + dx) % n_cells
+                        ny = (cy + dy) % n_cells
+                        j = head[nx, ny]
+                        while j != -1:
+                            if i < j:
+                                dx_vec = pos[i, 0] - pos[j, 0]
+                                dy_vec = pos[i, 1] - pos[j, 1]
+                                dx_vec = dx_vec - box_size * np.round(dx_vec / box_size)
+                                dy_vec = dy_vec - box_size * np.round(dy_vec / box_size)
+                                dist_sq = dx_vec**2 + dy_vec**2
+                                
+                                if dist_sq < cutoff_sq:
+                                    dist = np.sqrt(dist_sq)
+                                    overlap = cutoff - dist
+                                    energy += 0.5 * k_spring * (overlap**2)
+                                    
+                                    if dist_sq > 1e-12:
+                                        f_mag = k_spring * overlap
+                                        fx = (dx_vec / dist) * f_mag
+                                        fy = (dy_vec / dist) * f_mag
+                                        
+                                        forces[i, 0] += fx
+                                        forces[i, 1] += fy
+                                        forces[j, 0] -= fx
+                                        forces[j, 1] -= fy
+                            j = next_p[j]
+                i = next_p[i]
+    return forces, energy
+
+@njit
+def get_forces_dt_energy_domains_numba(pos, domain_dt, atom_indices, radius, k_spring, box_size):
+    n_atoms = pos.shape[0]
+    forces = np.zeros_like(pos)
+    forces_dt = np.zeros_like(pos)
+    energy = 0.0
+    cutoff = 2.0 * radius
+    cutoff_sq = cutoff * cutoff
+    head, next_p, n_cells = build_cell_list(pos, box_size, cutoff)
+    
+    for cx in range(n_cells):
+        for cy in range(n_cells):
+            i = head[cx, cy]
+            while i != -1:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        nx = (cx + dx) % n_cells
+                        ny = (cy + dy) % n_cells
+                        j = head[nx, ny]
+                        while j != -1:
+                            if i < j:
+                                dx_vec = pos[i, 0] - pos[j, 0]
+                                dy_vec = pos[i, 1] - pos[j, 1]
+                                dx_vec = dx_vec - box_size * np.round(dx_vec / box_size)
+                                dy_vec = dy_vec - box_size * np.round(dy_vec / box_size)
+                                dist_sq = dx_vec**2 + dy_vec**2
+                                
+                                if dist_sq < cutoff_sq:
+                                    dist = np.sqrt(dist_sq)
+                                    overlap = cutoff - dist
+                                    energy += 0.5 * k_spring * (overlap**2)
+                                    
+                                    if dist_sq > 1e-12:
+                                        f_mag = k_spring * overlap
+                                        fx = (dx_vec / dist) * f_mag
+                                        fy = (dy_vec / dist) * f_mag
+                                        
+                                        forces[i, 0] += fx
+                                        forces[i, 1] += fy
+                                        forces[j, 0] -= fx
+                                        forces[j, 1] -= fy
+                                        
+                                        dt_ij = min(domain_dt[atom_indices[i]], domain_dt[atom_indices[j]])
+                                        forces_dt[i, 0] += fx * dt_ij
+                                        forces_dt[i, 1] += fy * dt_ij
+                                        forces_dt[j, 0] -= fx * dt_ij
+                                        forces_dt[j, 1] -= fy * dt_ij
+                            j = next_p[j]
+                i = next_p[i]
+    return forces, forces_dt, energy
+
+@njit
+def get_forces_dt_energy_only_domains_numba(pos, domain_dt, atom_indices, radius, k_spring, box_size):
+    n_atoms = pos.shape[0]
+    forces_dt = np.zeros_like(pos)
+    energy = 0.0
+    cutoff = 2.0 * radius
+    cutoff_sq = cutoff * cutoff
+    head, next_p, n_cells = build_cell_list(pos, box_size, cutoff)
+    
+    for cx in range(n_cells):
+        for cy in range(n_cells):
+            i = head[cx, cy]
+            while i != -1:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        nx = (cx + dx) % n_cells
+                        ny = (cy + dy) % n_cells
+                        j = head[nx, ny]
+                        while j != -1:
+                            if i < j:
+                                dx_vec = pos[i, 0] - pos[j, 0]
+                                dy_vec = pos[i, 1] - pos[j, 1]
+                                dx_vec = dx_vec - box_size * np.round(dx_vec / box_size)
+                                dy_vec = dy_vec - box_size * np.round(dy_vec / box_size)
+                                dist_sq = dx_vec**2 + dy_vec**2
+                                
+                                if dist_sq < cutoff_sq:
+                                    dist = np.sqrt(dist_sq)
+                                    overlap = cutoff - dist
+                                    energy += 0.5 * k_spring * (overlap**2)
+                                    
+                                    if dist_sq > 1e-12:
+                                        f_mag = k_spring * overlap
+                                        fx = (dx_vec / dist) * f_mag
+                                        fy = (dy_vec / dist) * f_mag
+                                        dt_ij = min(domain_dt[atom_indices[i]], domain_dt[atom_indices[j]])
+                                        
+                                        forces_dt[i, 0] += fx * dt_ij
+                                        forces_dt[i, 1] += fy * dt_ij
+                                        forces_dt[j, 0] -= fx * dt_ij
+                                        forces_dt[j, 1] -= fy * dt_ij
+                            j = next_p[j]
+                i = next_p[i]
+    return forces_dt, energy
+
+@njit
+def map_atoms_to_grid_inplace(pos, divs, out):
+    n_atoms = pos.shape[0]
+    for i in range(n_atoms):
+        ix = int(np.floor(pos[i, 0] * divs))
+        iy = int(np.floor(pos[i, 1] * divs))
+        if ix < 0:
+            ix = 0
+        elif ix >= divs:
+            ix = divs - 1
+        if iy < 0:
+            iy = 0
+        elif iy >= divs:
+            iy = divs - 1
+        out[i] = ix * divs + iy
+
+@njit
+def wrap_positions_inplace(pos, box_size):
+    n_atoms = pos.shape[0]
+    for i in range(n_atoms):
+        pos[i, 0] = pos[i, 0] - box_size * np.floor(pos[i, 0] / box_size)
+        pos[i, 1] = pos[i, 1] - box_size * np.floor(pos[i, 1] / box_size)
+
+@njit
+def global_kick_drift_inplace(pos, vel, forces, dt, mass, box_size):
+    n_atoms = pos.shape[0]
+    half_dt_over_mass = 0.5 * dt / mass
+    for i in range(n_atoms):
+        vel[i, 0] += half_dt_over_mass * forces[i, 0]
+        vel[i, 1] += half_dt_over_mass * forces[i, 1]
+        pos[i, 0] += vel[i, 0] * dt
+        pos[i, 1] += vel[i, 1] * dt
+    wrap_positions_inplace(pos, box_size)
+
+@njit
+def global_second_kick_inplace(vel, forces, dt, mass):
+    n_atoms = vel.shape[0]
+    half_dt_over_mass = 0.5 * dt / mass
+    for i in range(n_atoms):
+        vel[i, 0] += half_dt_over_mass * forces[i, 0]
+        vel[i, 1] += half_dt_over_mass * forces[i, 1]
+
+@njit
+def async_kick_drift_inplace(pos, vel, forces_dt, atom_indices, domain_dt, mass, box_size):
+    n_atoms = pos.shape[0]
+    half_inv_mass = 0.5 / mass
+    for i in range(n_atoms):
+        vel[i, 0] += half_inv_mass * forces_dt[i, 0]
+        vel[i, 1] += half_inv_mass * forces_dt[i, 1]
+        dt_i = domain_dt[atom_indices[i]]
+        pos[i, 0] += vel[i, 0] * dt_i
+        pos[i, 1] += vel[i, 1] * dt_i
+    wrap_positions_inplace(pos, box_size)
+
+@njit
+def async_second_kick_inplace(vel, forces_dt, mass):
+    n_atoms = vel.shape[0]
+    half_inv_mass = 0.5 / mass
+    for i in range(n_atoms):
+        vel[i, 0] += half_inv_mass * forces_dt[i, 0]
+        vel[i, 1] += half_inv_mass * forces_dt[i, 1]
+
+@njit
+def apply_global_fire_mixing_inplace(vel, forces, alpha):
+    n_atoms = vel.shape[0]
+    p_global = 0.0
+    force_sq = 0.0
+    
+    for i in range(n_atoms):
+        fx = forces[i, 0]
+        fy = forces[i, 1]
+        vx = vel[i, 0]
+        vy = vel[i, 1]
+        p_global += fx * vx + fy * vy
+        force_sq += fx * fx + fy * fy
+    
+    one_minus_alpha = 1.0 - alpha
+    for i in range(n_atoms):
+        fx = forces[i, 0]
+        fy = forces[i, 1]
+        f_sq = fx * fx + fy * fy
+        if f_sq > 1e-24:
+            vx = vel[i, 0]
+            vy = vel[i, 1]
+            v_mag = np.sqrt(vx * vx + vy * vy)
+            f_mag = np.sqrt(f_sq)
+            force_scale = alpha * v_mag / f_mag
+            vel[i, 0] = one_minus_alpha * vx + force_scale * fx
+            vel[i, 1] = one_minus_alpha * vy + force_scale * fy
+    
+    return p_global, force_sq
+
+@njit
+def apply_async_fire_mixing_inplace(vel, forces, atom_indices, domain_alpha, n_domains):
+    n_atoms = vel.shape[0]
+    p_domain = np.zeros(n_domains)
+    force_sq = 0.0
+    
+    for i in range(n_atoms):
+        fx = forces[i, 0]
+        fy = forces[i, 1]
+        vx = vel[i, 0]
+        vy = vel[i, 1]
+        p_domain[atom_indices[i]] += fx * vx + fy * vy
+        force_sq += fx * fx + fy * fy
+    
+    for i in range(n_atoms):
+        fx = forces[i, 0]
+        fy = forces[i, 1]
+        f_sq = fx * fx + fy * fy
+        if f_sq > 1e-24:
+            alpha = domain_alpha[atom_indices[i]]
+            vx = vel[i, 0]
+            vy = vel[i, 1]
+            v_mag = np.sqrt(vx * vx + vy * vy)
+            f_mag = np.sqrt(f_sq)
+            force_scale = alpha * v_mag / f_mag
+            vel[i, 0] = (1.0 - alpha) * vx + force_scale * fx
+            vel[i, 1] = (1.0 - alpha) * vy + force_scale * fy
+    
+    return p_domain, force_sq
+
+@njit
+def zero_velocity_for_down_domains_inplace(vel, atom_indices, domain_is_down):
+    n_atoms = vel.shape[0]
+    for i in range(n_atoms):
+        if domain_is_down[atom_indices[i]]:
+            vel[i, 0] = 0.0
+            vel[i, 1] = 0.0
+
 def map_atoms_to_grid(pos, divs):
     ix = np.clip(np.floor(pos[:, 0] * divs).astype(int), 0, divs-1)
     iy = np.clip(np.floor(pos[:, 1] * divs).astype(int), 0, divs-1)
@@ -159,33 +429,20 @@ def run_global_fire(pos_init, max_steps, radius, wall_time_limit):
     energy_history, dt_history, time_history = [], [], []
     
     t0 = time.time()
+    forces, current_energy = get_forces_energy_scalar_dt_numba(pos, radius, K_SPRING, BOX_SIZE)
     for step in range(max_steps):
         if step % LOG_INTERVAL == 0:
             elapsed = time.time() - t0
-            e_curr = get_total_energy_cell_list_numba(pos, radius, K_SPRING, BOX_SIZE)
-            energy_history.append(e_curr)
+            energy_history.append(current_energy)
             dt_history.append(dt)
             time_history.append(elapsed)
             if elapsed >= wall_time_limit: break
             
-        atom_dt = np.full(N_ATOMS, dt)
-        forces, forces_dt = get_forces_cell_list_numba(pos, atom_dt, radius, K_SPRING, BOX_SIZE)
+        global_kick_drift_inplace(pos, vel, forces, dt, MASS, BOX_SIZE)
+        forces, current_energy = get_forces_energy_scalar_dt_numba(pos, radius, K_SPRING, BOX_SIZE)
+        global_second_kick_inplace(vel, forces, dt, MASS)
         
-        vel += 0.5 * forces_dt / MASS
-        pos += vel * dt
-        pos = np.mod(pos, BOX_SIZE)
-        
-        forces_new, forces_dt_new = get_forces_cell_list_numba(pos, atom_dt, radius, K_SPRING, BOX_SIZE)
-        vel += 0.5 * forces_dt_new / MASS
-        forces = forces_new
-        
-        P_global = np.sum(forces * vel)
-        v_mag = np.linalg.norm(vel, axis=1, keepdims=True)
-        f_mag = np.linalg.norm(forces, axis=1, keepdims=True)
-        mask = (f_mag > 1e-12).flatten()
-        
-        if np.any(mask):
-            vel[mask] = (1 - alpha) * vel[mask] + alpha * (forces[mask]/f_mag[mask]) * v_mag[mask]
+        P_global, force_sq = apply_global_fire_mixing_inplace(vel, forces, alpha)
             
         if P_global > 0:
             npos += 1
@@ -198,7 +455,7 @@ def run_global_fire(pos_init, max_steps, radius, wall_time_limit):
             vel[:, :] = 0.0
             alpha = ALPHA_START
             
-        if np.sqrt(np.sum(forces**2) / (2 * N_ATOMS)) < TOL: break
+        if np.sqrt(force_sq / (2 * N_ATOMS)) < TOL: break
             
     return np.array(energy_history), np.array(dt_history), np.array(time_history), time.time() - t0
 
@@ -213,35 +470,29 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs, wall_time_limit):
     
     energy_history, dt_mean_history, time_history = [], [], []
     
-    atom_indices = map_atoms_to_grid(pos, grid_divs)
-    forces, forces_dt = get_forces_cell_list_numba(pos, d_dt[atom_indices], radius, K_SPRING, BOX_SIZE)
-    
     t0 = time.time()
+    atom_indices = np.empty(N_ATOMS, dtype=np.int64)
+    map_atoms_to_grid_inplace(pos, grid_divs, atom_indices)
+    forces_dt, current_energy = get_forces_dt_energy_only_domains_numba(
+        pos, d_dt, atom_indices, radius, K_SPRING, BOX_SIZE
+    )
     for step in range(max_steps):
         if step % LOG_INTERVAL == 0:
             elapsed = time.time() - t0
-            e_current = get_total_energy_cell_list_numba(pos, radius, K_SPRING, BOX_SIZE)
-            energy_history.append(e_current)
+            energy_history.append(current_energy)
             dt_mean_history.append(np.mean(d_dt))
             time_history.append(elapsed)
             if elapsed >= wall_time_limit: break
                 
-        vel += 0.5 * forces_dt / MASS
-        pos += vel * d_dt[atom_indices][:, np.newaxis]
-        pos = np.mod(pos, BOX_SIZE)
+        async_kick_drift_inplace(pos, vel, forces_dt, atom_indices, d_dt, MASS, BOX_SIZE)
         
-        atom_indices = map_atoms_to_grid(pos, grid_divs)
-        forces_new, forces_dt_new = get_forces_cell_list_numba(pos, d_dt[atom_indices], radius, K_SPRING, BOX_SIZE)
-        vel += 0.5 * forces_dt_new / MASS
-        forces = forces_new; forces_dt = forces_dt_new
+        map_atoms_to_grid_inplace(pos, grid_divs, atom_indices)
+        forces, forces_dt, current_energy = get_forces_dt_energy_domains_numba(
+            pos, d_dt, atom_indices, radius, K_SPRING, BOX_SIZE
+        )
+        async_second_kick_inplace(vel, forces_dt, MASS)
         
-        p_domain = np.bincount(atom_indices, weights=np.sum(forces * vel, axis=1), minlength=n_domains)
-        atom_alpha = d_alpha[atom_indices][:, np.newaxis]
-        v_mag = np.linalg.norm(vel, axis=1, keepdims=True)
-        f_mag = np.linalg.norm(forces, axis=1, keepdims=True)
-        mask = (f_mag > 1e-12).flatten()
-        if np.any(mask): 
-            vel[mask] = (1 - atom_alpha[mask]) * vel[mask] + atom_alpha[mask] * (forces[mask]/f_mag[mask]) * v_mag[mask]
+        p_domain, force_sq = apply_async_fire_mixing_inplace(vel, forces, atom_indices, d_alpha, n_domains)
             
         mask_up = p_domain > 0
         d_npos[mask_up] += 1
@@ -250,12 +501,16 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs, wall_time_limit):
         d_alpha[mask_grow] *= F_ALPHA
         
         mask_down = p_domain <= 0
+        dt_changed = np.any(mask_grow) or np.any(mask_down)
         d_npos[mask_down] = 0; d_dt[mask_down] *= F_DEC; d_alpha[mask_down] = ALPHA_START
-        vel[mask_down[atom_indices]] = 0.0
+        zero_velocity_for_down_domains_inplace(vel, atom_indices, mask_down)
         
-        if np.sqrt(np.sum(forces**2) / (2 * N_ATOMS)) < TOL: break
+        if np.sqrt(force_sq / (2 * N_ATOMS)) < TOL: break
 
-        forces, forces_dt = get_forces_cell_list_numba(pos, d_dt[atom_indices], radius, K_SPRING, BOX_SIZE)
+        if dt_changed:
+            forces_dt, current_energy = get_forces_dt_energy_only_domains_numba(
+                pos, d_dt, atom_indices, radius, K_SPRING, BOX_SIZE
+            )
             
     return np.array(energy_history), np.array(dt_mean_history), np.array(time_history), time.time() - t0
 
@@ -351,8 +606,29 @@ if __name__ == '__main__':
         flush=True,
     )
     dummy_r = np.sqrt((0.82 * BOX_SIZE**2) / (10 * np.pi))
-    _ = get_forces_cell_list_numba(BASE_POSITIONS[:10], np.ones(10), dummy_r, K_SPRING, BOX_SIZE)
-    _ = get_total_energy_cell_list_numba(BASE_POSITIONS[:10], dummy_r, K_SPRING, BOX_SIZE)
+    dummy_pos = BASE_POSITIONS[:10].copy()
+    dummy_vel = np.zeros_like(dummy_pos)
+    dummy_domains = np.zeros(10, dtype=np.int64)
+    dummy_dt = np.ones(4) * DT_INIT
+    dummy_alpha = np.ones(4) * ALPHA_START
+    dummy_down = np.zeros(4, dtype=np.bool_)
+    _ = get_forces_cell_list_numba(dummy_pos, np.ones(10), dummy_r, K_SPRING, BOX_SIZE)
+    _ = get_total_energy_cell_list_numba(dummy_pos, dummy_r, K_SPRING, BOX_SIZE)
+    dummy_forces, _ = get_forces_energy_scalar_dt_numba(dummy_pos, dummy_r, K_SPRING, BOX_SIZE)
+    dummy_forces_async, dummy_forces_dt, _ = get_forces_dt_energy_domains_numba(
+        dummy_pos, dummy_dt, dummy_domains, dummy_r, K_SPRING, BOX_SIZE
+    )
+    dummy_forces_dt_only, _ = get_forces_dt_energy_only_domains_numba(
+        dummy_pos, dummy_dt, dummy_domains, dummy_r, K_SPRING, BOX_SIZE
+    )
+    map_atoms_to_grid_inplace(dummy_pos, 2, dummy_domains)
+    global_kick_drift_inplace(dummy_pos, dummy_vel, dummy_forces, DT_INIT, MASS, BOX_SIZE)
+    global_second_kick_inplace(dummy_vel, dummy_forces, DT_INIT, MASS)
+    async_kick_drift_inplace(dummy_pos, dummy_vel, dummy_forces_dt, dummy_domains, dummy_dt, MASS, BOX_SIZE)
+    async_second_kick_inplace(dummy_vel, dummy_forces_dt_only, MASS)
+    _ = apply_global_fire_mixing_inplace(dummy_vel, dummy_forces, ALPHA_START)
+    _ = apply_async_fire_mixing_inplace(dummy_vel, dummy_forces_async, dummy_domains, dummy_alpha, 4)
+    zero_velocity_for_down_domains_inplace(dummy_vel, dummy_domains, dummy_down)
 
     try:
         tasks = []
