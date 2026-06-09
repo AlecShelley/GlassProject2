@@ -1,0 +1,19 @@
+#!/bin/bash
+#SBATCH --job-name=async_fire_10x10
+#SBATCH --partition=normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=32G
+#SBATCH --time=08:00:00
+#SBATCH --output=fire_run_%j.out
+#SBATCH --error=fire_run_%j.err
+
+# Load Stanford's default Anaconda module
+module load py-numpy/1.24.2_py39
+module load py-matplotlib/3.7.1_py39
+module load py-numba/0.57.0_py39
+
+echo "Starting 100-run Async FIRE Parameter Sweep on Sherlock..."
+python async_fire_compute.py
+echo "Job Complete."

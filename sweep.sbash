@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH --job-name=FIRE_Scaling_Sweep
+#SBATCH --partition=normal        # Stanford Sherlock standard compute nodes
+#SBATCH --time=04:00:00           # 4 hours max wall-clock time
+#SBATCH --nodes=1                 # Use 1 node per job
+#SBATCH --ntasks=1                # 1 task per job
+#SBATCH --cpus-per-task=16        # Request 16 cores for Numba Parallelization
+#SBATCH --mem=32G                 # Request 32GB of RAM
+#SBATCH --array=0-3               # Set up a 4-job array (0, 1, 2, 3)
+#SBATCH --output=logs/FIRE_%A_%a.out
+
+# Load the required Python module on Sherlock
+module load python/3.9.0
+module load py-numpy/1.20.3_py39
+module load py-numba/0.54.1_py39
+
+# Ensure the results and logs directories exist
+mkdir -p results logs
+
+# Tell Numba to use the 16 cores we requested
+export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+# Define the N_ATOMS scaling sweep
+N_ARRAY=(25000 50000 100000 250000)
+
+# Define the corresponding optimal GRID_DIVS (K_opt) for each N
+# Calculated to keep the boundary fraction roughly ~10%
+GRID_ARRAY=(6 8 10 16)
+
+# Select the parameters for THIS specific job in the array
+CURRENT_N=${N_ARRAY[$SLURM_ARRAY_TASK_ID]}
+CURRENT_GRID=${GRID_ARRAY[$SLURM_ARRAY_TASK_ID]}
+
+echo "Starting Simulation: N = $CURRENT_N | Grid = ${CURRENT_GRID}x${CURRENT_GRID} on 16 Cores"
+
+# Execute the Python script with the dynamically passed arguments
+python3 fire_hpc.py --N $CURRENT_N --grid $CURRENT_GRID --phi 0.90 --steps 2000
+
+echo "Simulation complete for N = $CURRENT_N"
