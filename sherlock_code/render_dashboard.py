@@ -12,6 +12,16 @@ PHI_SWEEP = [0.82, 0.84, 0.86]
 GAMMA_TARGETS = [0.03, 0.05, 0.07]
 BOX_SIZE = 1.0
 
+FONT = {
+    "suptitle": 46,
+    "panel_title": 30,
+    "axis_label": 32,
+    "tick": 26,
+    "legend": 28,
+    "annotation": 30,
+    "colorbar_label": 30,
+}
+
 def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
     expected_arrays = len(PHI_SWEEP) * len(GAMMA_TARGETS)
     print(f"Scanning '{data_dir}/' for {expected_arrays} arrays...")
@@ -20,7 +30,7 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
     gamma_labels = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
     
     fig, axes = plt.subplots(len(PHI_SWEEP), len(GAMMA_TARGETS), figsize=(48, 40), sharex='col', sharey='row')
-    fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={N_ATOMS})", fontsize=20, y=0.92)
+    fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={N_ATOMS})", fontsize=FONT["suptitle"], y=0.94)
     
     for i, phi in enumerate(PHI_SWEEP):
         current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
@@ -45,51 +55,58 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
                 # Absolute Speedup Multiplier
                 speedup_matrix[i, j] = float(time_glob) / float(time_async)
                 
-                ax.plot(t_glob, e_glob, 'k--', linewidth=2, label='Global')
-                ax.plot(t_async, e_async, 'r-', linewidth=2, label='Async')
+                ax.plot(t_glob, e_glob, 'k--', linewidth=4, label='Global')
+                ax.plot(t_async, e_async, 'r-', linewidth=4, label='Async')
                 ax.set_yscale('log')
-                ax.set_title(rf"$\phi$={phi:.2f} | $\gamma$={gamma_val:.2f}", fontsize=14)
+                ax.set_title(rf"$\phi$={phi:.2f} | $\gamma$={gamma_val:.2f}", fontsize=FONT["panel_title"], pad=20)
+                ax.tick_params(axis='both', labelsize=FONT["tick"], width=2, length=8)
+                if i == len(PHI_SWEEP) - 1:
+                    ax.set_xlabel("Wall Time (s)", fontsize=FONT["axis_label"], labelpad=18)
+                if j == 0:
+                    ax.set_ylabel("Energy", fontsize=FONT["axis_label"], labelpad=18)
                 ax.grid(alpha=0.3)
-                if i == 0 and j == 0: ax.legend()
+                if i == 0 and j == 0: ax.legend(fontsize=FONT["legend"])
             else:
                 speedup_matrix[i, j] = np.nan
-                ax.text(0.5, 0.5, "Missing", ha='center', va='center')
+                ax.text(0.5, 0.5, "Missing", ha='center', va='center', fontsize=FONT["annotation"])
                 ax.set_xticks([]); ax.set_yticks([])
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.90])
+    plt.tight_layout(rect=[0, 0.03, 1, 0.91])
     plt.savefig("FigS1_Short_3x3_Dashboard.pdf", bbox_inches='tight')
     plt.close()
     print("Short 3x3 dashboard saved.")
 
     # 2. GENERATE THE HEATMAP PHASE DIAGRAM
-    plt.figure(figsize=(12, 8))
     masked_data = np.ma.masked_invalid(np.flipud(speedup_matrix))
     y_labels = [f"{p:.2f}" for p in reversed(PHI_SWEEP)]
     x_labels = [f"{g:.2f}" for g in GAMMA_TARGETS]
     
-    fig, ax = plt.subplots(figsize=(12, 8))
-    cmap = plt.cm.get_cmap("coolwarm").copy()
+    fig, ax = plt.subplots(figsize=(16, 12))
+    cmap = plt.colormaps["coolwarm"].copy()
     cmap.set_bad(color="lightgray")
     im = ax.imshow(masked_data, cmap=cmap, vmin=0.5, vmax=3.0, aspect="auto")
     cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label("Wall-Clock Speedup Multiplier")
+    cbar.set_label("Wall-Clock Speedup Multiplier", fontsize=FONT["colorbar_label"], labelpad=22)
+    cbar.ax.tick_params(labelsize=FONT["tick"], width=2, length=8)
 
     ax.set_xticks(np.arange(len(x_labels)))
-    ax.set_xticklabels(x_labels)
+    ax.set_xticklabels(x_labels, fontsize=FONT["tick"])
     ax.set_yticks(np.arange(len(y_labels)))
-    ax.set_yticklabels(y_labels)
+    ax.set_yticklabels(y_labels, fontsize=FONT["tick"])
 
     mask = np.ma.getmaskarray(masked_data)
     for row in range(masked_data.shape[0]):
         for col in range(masked_data.shape[1]):
             if not mask[row, col]:
-                ax.text(col, row, f"{masked_data[row, col]:.1f}", ha="center", va="center", color="black")
+                ax.text(col, row, f"{masked_data[row, col]:.1f}", ha="center", va="center", color="black", fontsize=FONT["annotation"])
     
-    plt.title(f"Short 3x3 Speedup Check (N={N_ATOMS})", fontsize=16)
-    plt.xlabel(r"Boundary Friction Fraction ($\gamma$)", fontsize=14)
-    plt.ylabel(r"Packing Fraction ($\phi$)", fontsize=14)
+    ax.set_title(f"Short 3x3 Speedup Check (N={N_ATOMS})", fontsize=FONT["suptitle"], pad=28)
+    ax.set_xlabel(r"Boundary Friction Fraction ($\gamma$)", fontsize=FONT["axis_label"], labelpad=24)
+    ax.set_ylabel(r"Packing Fraction ($\phi$)", fontsize=FONT["axis_label"], labelpad=24)
+    ax.tick_params(axis='both', width=2, length=8)
     
-    plt.savefig("Fig3_Short_3x3_Speedup_Heatmap.pdf", bbox_inches='tight')
+    fig.savefig("Fig3_Short_3x3_Speedup_Heatmap.pdf", bbox_inches='tight')
+    plt.close(fig)
     print("Optimization Heatmap saved.")
 
 if __name__ == '__main__':
