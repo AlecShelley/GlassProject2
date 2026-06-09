@@ -9,11 +9,19 @@
 #SBATCH --output=fire_run_%j.out
 #SBATCH --error=fire_run_%j.err
 
-# Load Stanford's default Anaconda module
+set -euo pipefail
+
+# Load a Python 3.9 stack compatible with numba and matplotlib on Sherlock.
+module --force purge
+module load math
+module load devel
 module load py-numpy/1.24.2_py39
+module load py-numba/0.59.1_py39
+module load viz
 module load py-matplotlib/3.7.1_py39
-module load py-numba/0.57.0_py39
 
 echo "Starting 100-run Async FIRE Parameter Sweep on Sherlock..."
-python async_fire_compute.py
+cd "$SLURM_SUBMIT_DIR"
+python3 asynch_fire_compute.py
+python3 render_dashboard.py
 echo "Job Complete."

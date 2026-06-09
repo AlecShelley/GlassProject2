@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 N_ATOMS = 2500000 
 PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
@@ -62,8 +61,23 @@ def render_local_dashboard(data_dir="parameter_sweep_10x10"):
     y_labels = [f"{p:.2f}" for p in reversed(PHI_SWEEP)]
     x_labels = [f"{g:.2f}" for g in GAMMA_TARGETS]
     
-    sns.heatmap(masked_data, annot=True, fmt=".1f", cmap="coolwarm", cbar_kws={'label': 'Wall-Clock Speedup Multiplier'},
-                xticklabels=x_labels, yticklabels=y_labels, vmin=0.5, vmax=3.0)
+    fig, ax = plt.subplots(figsize=(12, 8))
+    cmap = plt.cm.get_cmap("coolwarm").copy()
+    cmap.set_bad(color="lightgray")
+    im = ax.imshow(masked_data, cmap=cmap, vmin=0.5, vmax=3.0, aspect="auto")
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("Wall-Clock Speedup Multiplier")
+
+    ax.set_xticks(np.arange(len(x_labels)))
+    ax.set_xticklabels(x_labels)
+    ax.set_yticks(np.arange(len(y_labels)))
+    ax.set_yticklabels(y_labels)
+
+    mask = np.ma.getmaskarray(masked_data)
+    for row in range(masked_data.shape[0]):
+        for col in range(masked_data.shape[1]):
+            if not mask[row, col]:
+                ax.text(col, row, f"{masked_data[row, col]:.1f}", ha="center", va="center", color="black")
     
     plt.title(f"Integrability Phase Diagram: Absolute Speedup (N={N_ATOMS})", fontsize=16)
     plt.xlabel(r"Boundary Friction Fraction ($\gamma$)", fontsize=14)
