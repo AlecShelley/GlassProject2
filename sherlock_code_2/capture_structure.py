@@ -182,6 +182,8 @@ def run_async_fire(pos_init, radius, grid_divs):
             if rms_f < TOL:
                 print(f"Async FIRE Converged at step {step}")
                 break
+
+        forces, forces_dt = get_forces_cell_list(pos, d_dt[atom_indices], radius, K_SPRING, BOX_SIZE)
                 
     return pos, forces, d_dt
 

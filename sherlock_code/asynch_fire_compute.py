@@ -239,6 +239,8 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs):
         vel[mask_down[atom_indices]] = 0.0
         
         if np.sqrt(np.sum(forces**2) / (2 * N_ATOMS)) < TOL: break
+
+        forces, forces_dt = get_forces_cell_list_numba(pos, d_dt[atom_indices], radius, K_SPRING, BOX_SIZE)
             
     return np.array(energy_history), np.array(dt_mean_history), np.array(time_history), time.time() - t0
 

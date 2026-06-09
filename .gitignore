@@ -1,2 +1,4 @@
+__pycache__/
 sherlock_code/fire_run_*.err
 sherlock_code/fire_run_*.out
+sherlock_code/parameter_sweep_10x10/

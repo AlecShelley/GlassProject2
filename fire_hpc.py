@@ -215,6 +215,8 @@ def run_async_fire(pos_init, max_steps, capture_step):
         if np.sqrt(np.sum(forces**2) / (2 * N_ATOMS)) < TOL: 
             if snapshot_dt is None: snapshot_dt = np.copy(d_dt)
             break
+
+        forces, forces_dt = get_forces_mpt_numba(pos, d_dt[atom_indices], RADIUS, K_SPRING)
             
     if snapshot_dt is None: snapshot_dt = np.copy(d_dt)
     
