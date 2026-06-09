@@ -1,4 +1,6 @@
 import os
+import argparse
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -7,7 +9,7 @@ import matplotlib.pyplot as plt
 # PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
 # GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
 
-N_ATOMS = 100000
+N_ATOMS = 10_000_000
 PHI_SWEEP = [0.82, 0.84, 0.86]
 GAMMA_TARGETS = [0.03, 0.05, 0.07]
 BOX_SIZE = 1.0
@@ -16,32 +18,61 @@ FONT = {
     "suptitle": 46,
     "panel_title": 30,
     "axis_label": 32,
-    "tick": 26,
+    "tick": 30,
+    "y_tick": 44,
     "legend": 28,
     "annotation": 30,
     "colorbar_label": 30,
 }
 
-def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
+def format_scientific_n(n):
+    return f"{n:.1e}".replace("e+0", "e").replace("e+", "e").replace("e-0", "e-")
+
+def safe_label(label):
+    return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in label)
+
+def load_run_label(data_dir, run_label=None):
+    if run_label:
+        return run_label
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path) as fh:
+            metadata = json.load(fh)
+        if "run_id" in metadata:
+            return metadata["run_id"]
+    return os.path.basename(os.path.normpath(data_dir))
+
+def find_sweep_file(data_dir, phi, gamma_target, grid):
+    candidates = [
+        os.path.join(data_dir, f"sweep_phi{phi:.2f}_gamma{gamma_target:.2f}_grid{grid}.npz"),
+        os.path.join(data_dir, f"sweep_phi{phi:.2f}_grid{grid}.npz"),
+    ]
+    for filename in candidates:
+        if os.path.exists(filename):
+            return filename
+    return candidates[0]
+
+def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, run_label=None):
     expected_arrays = len(PHI_SWEEP) * len(GAMMA_TARGETS)
     print(f"Scanning '{data_dir}/' for {expected_arrays} arrays...")
+    run_label = load_run_label(data_dir, run_label)
+    plot_dir = plot_dir or os.path.join("plots", safe_label(run_label))
+    os.makedirs(plot_dir, exist_ok=False)
     
     speedup_matrix = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
     gamma_labels = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
     
     fig, axes = plt.subplots(len(PHI_SWEEP), len(GAMMA_TARGETS), figsize=(48, 40), sharex='col', sharey='row')
-    fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={N_ATOMS})", fontsize=FONT["suptitle"], y=0.94)
+    n_label = format_scientific_n(N_ATOMS)
+    fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={n_label})", fontsize=FONT["suptitle"], y=0.94)
     
     for i, phi in enumerate(PHI_SWEEP):
         current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
         k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
-        k_values = sorted(list(set(k_values)))
-        while len(k_values) < len(GAMMA_TARGETS):
-            k_values.append(k_values[-1] + 2)
             
-        for j, grid in enumerate(k_values[:len(GAMMA_TARGETS)]):
+        for j, (gamma_target, grid) in enumerate(zip(GAMMA_TARGETS, k_values)):
             ax = axes[i, j]
-            filename = os.path.join(data_dir, f"sweep_phi{phi:.2f}_grid{grid}.npz")
+            filename = find_sweep_file(data_dir, phi, gamma_target, grid)
             
             if os.path.exists(filename):
                 data = np.load(filename)
@@ -59,7 +90,8 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
                 ax.plot(t_async, e_async, 'r-', linewidth=4, label='Async')
                 ax.set_yscale('log')
                 ax.set_title(rf"$\phi$={phi:.2f} | $\gamma$={gamma_val:.2f}", fontsize=FONT["panel_title"], pad=20)
-                ax.tick_params(axis='both', labelsize=FONT["tick"], width=2, length=8)
+                ax.tick_params(axis='x', labelsize=FONT["tick"], width=2, length=8)
+                ax.tick_params(axis='y', labelsize=FONT["y_tick"], width=2, length=10)
                 if i == len(PHI_SWEEP) - 1:
                     ax.set_xlabel("Wall Time (s)", fontsize=FONT["axis_label"], labelpad=18)
                 if j == 0:
@@ -72,9 +104,11 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
                 ax.set_xticks([]); ax.set_yticks([])
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.91])
-    plt.savefig("FigS1_Short_3x3_Dashboard.pdf", bbox_inches='tight')
+    run_slug = safe_label(run_label)
+    dashboard_path = os.path.join(plot_dir, f"FigS1_Short_3x3_Dashboard_{run_slug}.pdf")
+    plt.savefig(dashboard_path, bbox_inches='tight')
     plt.close()
-    print("Short 3x3 dashboard saved.")
+    print(f"Short 3x3 dashboard saved to {dashboard_path}.")
 
     # 2. GENERATE THE HEATMAP PHASE DIAGRAM
     masked_data = np.ma.masked_invalid(np.flipud(speedup_matrix))
@@ -92,7 +126,7 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
     ax.set_xticks(np.arange(len(x_labels)))
     ax.set_xticklabels(x_labels, fontsize=FONT["tick"])
     ax.set_yticks(np.arange(len(y_labels)))
-    ax.set_yticklabels(y_labels, fontsize=FONT["tick"])
+    ax.set_yticklabels(y_labels, fontsize=FONT["y_tick"])
 
     mask = np.ma.getmaskarray(masked_data)
     for row in range(masked_data.shape[0]):
@@ -100,14 +134,23 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
             if not mask[row, col]:
                 ax.text(col, row, f"{masked_data[row, col]:.1f}", ha="center", va="center", color="black", fontsize=FONT["annotation"])
     
-    ax.set_title(f"Short 3x3 Speedup Check (N={N_ATOMS})", fontsize=FONT["suptitle"], pad=28)
+    ax.set_title(f"Short 3x3 Speedup Check (N={n_label})", fontsize=FONT["suptitle"], pad=28)
     ax.set_xlabel(r"Boundary Friction Fraction ($\gamma$)", fontsize=FONT["axis_label"], labelpad=24)
     ax.set_ylabel(r"Packing Fraction ($\phi$)", fontsize=FONT["axis_label"], labelpad=24)
     ax.tick_params(axis='both', width=2, length=8)
     
-    fig.savefig("Fig3_Short_3x3_Speedup_Heatmap.pdf", bbox_inches='tight')
+    heatmap_path = os.path.join(plot_dir, f"Fig3_Short_3x3_Speedup_Heatmap_{run_slug}.pdf")
+    fig.savefig(heatmap_path, bbox_inches='tight')
     plt.close(fig)
-    print("Optimization Heatmap saved.")
+    print(f"Optimization Heatmap saved to {heatmap_path}.")
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Render the 3x3 Async FIRE dashboard.")
+    parser.add_argument("--data-dir", default="parameter_sweep_3x3_short")
+    parser.add_argument("--plot-dir", default=None)
+    parser.add_argument("--run-label", default=None)
+    return parser.parse_args()
 
 if __name__ == '__main__':
-    render_local_dashboard()
+    args = parse_args()
+    render_local_dashboard(args.data_dir, args.plot_dir, args.run_label)

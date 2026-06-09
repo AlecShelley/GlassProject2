@@ -3,9 +3,9 @@
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=16G
-#SBATCH --time=00:10:00
+#SBATCH --cpus-per-task=9
+#SBATCH --mem=64G
+#SBATCH --time=00:45:00
 #SBATCH --output=fire_run_%j.out
 #SBATCH --error=fire_run_%j.err
 
@@ -20,8 +20,18 @@ module load py-numba/0.59.1_py39
 module load viz
 module load py-matplotlib/3.7.1_py39
 
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export NUMBA_NUM_THREADS=1
+
+RUN_ID="n1e7_3x3_120s_${SLURM_JOB_ID}"
+DATA_DIR="parameter_sweep_3x3_short_runs/${RUN_ID}"
+PLOT_DIR="plots/${RUN_ID}"
+
 echo "Starting 9-point short Async FIRE sweep on Sherlock..."
 cd "$SLURM_SUBMIT_DIR"
-python3 -u asynch_fire_compute.py
-python3 -u render_dashboard.py
+python3 -u asynch_fire_compute.py --run-id "$RUN_ID" --output-dir "$DATA_DIR"
+python3 -u render_dashboard.py --data-dir "$DATA_DIR" --plot-dir "$PLOT_DIR" --run-label "$RUN_ID"
 echo "Job Complete."

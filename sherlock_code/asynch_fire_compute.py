@@ -1,6 +1,9 @@
 import numpy as np
+import argparse
+import json
 import time
 import os
+import multiprocessing as mp
 import matplotlib
 matplotlib.use('Agg')
 from numba import njit
@@ -14,7 +17,7 @@ from numba import njit
 # PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
 # GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
 
-N_ATOMS = 100000
+N_ATOMS = 10_000_000
 BOX_SIZE = 1.0
 K_SPRING = 5000.0
 MASS = 1.0
@@ -30,14 +33,17 @@ TOL = -1.0
 
 MAX_STEPS = 100000        
 CAPTURE_STEP = 150  
-POINT_WALL_TIME = 12.0
+POINT_WALL_TIME = 120.0
 FIRE_WALL_TIME = POINT_WALL_TIME / 2.0
 LOG_INTERVAL = 1
 
 # Short 3x3 Sherlock smoke sweep. Middle values are phi=0.84 and gamma=0.05.
 PHI_SWEEP = [0.82, 0.84, 0.86]
 GAMMA_TARGETS = [0.03, 0.05, 0.07]
-OUTPUT_DIR = "parameter_sweep_3x3_short"
+OUTPUT_ROOT = "parameter_sweep_3x3_short_runs"
+OUTPUT_DIR = None
+N_WORKERS = len(PHI_SWEEP) * len(GAMMA_TARGETS)
+BASE_POSITIONS = None
 
 # ==========================================
 # 2. NUMBA JIT-COMPILED CELL LIST PHYSICS 
@@ -253,62 +259,115 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs, wall_time_limit):
             
     return np.array(energy_history), np.array(dt_mean_history), np.array(time_history), time.time() - t0
 
+def run_sweep_point(task):
+    phi_idx, phi, gamma_target, grid, current_radius = task
+    actual_gamma = (8 * current_radius * grid) / BOX_SIZE
+    point_t0 = time.time()
+    print(
+        f"   -> Short point phi={phi:.2f}, target gamma={gamma_target:.2f}, "
+        f"K={grid}x{grid}, actual gamma={actual_gamma:.3f}",
+        flush=True,
+    )
+    e_hist_glob, dt_hist_glob, t_hist_glob, time_glob = run_global_fire(
+        BASE_POSITIONS, MAX_STEPS, current_radius, FIRE_WALL_TIME
+    )
+    
+    e_hist_async, dt_hist_async, t_hist_async, time_async = run_async_fire(
+        BASE_POSITIONS, MAX_STEPS, current_radius, grid, FIRE_WALL_TIME
+    )
+    
+    out_filename = os.path.join(
+        OUTPUT_DIR,
+        f"sweep_phi{phi:.2f}_gamma{gamma_target:.2f}_grid{grid}.npz",
+    )
+    np.savez_compressed(out_filename, 
+                        e_hist_async=e_hist_async, e_hist_glob=e_hist_glob,
+                        t_hist_async=t_hist_async, t_hist_glob=t_hist_glob,
+                        time_async=time_async, time_glob=time_glob,
+                        grid_divs=grid, n_atoms=N_ATOMS, phi=phi,
+                        gamma=actual_gamma, target_gamma=gamma_target,
+                        point_time=time.time() - point_t0,
+                        point_wall_time=POINT_WALL_TIME,
+                        fire_wall_time=FIRE_WALL_TIME)
+    print(
+        f"      saved {out_filename} in {time.time() - point_t0:.1f}s "
+        f"(global {time_glob:.1f}s, async {time_async:.1f}s)",
+        flush=True,
+    )
+    return out_filename
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run the 3x3 Async FIRE sweep.")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Fresh directory for this run's .npz outputs. Defaults to a timestamped run directory.",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Run id used when creating the default output directory.",
+    )
+    return parser.parse_args()
+
+def default_run_id():
+    return os.environ.get("ASYNC_FIRE_RUN_ID") or time.strftime("run_%Y%m%d_%H%M%S")
+
+def write_run_metadata(output_dir, run_id):
+    metadata = {
+        "run_id": run_id,
+        "n_atoms": N_ATOMS,
+        "phi_sweep": PHI_SWEEP,
+        "gamma_targets": GAMMA_TARGETS,
+        "point_wall_time": POINT_WALL_TIME,
+        "fire_wall_time": FIRE_WALL_TIME,
+        "n_workers": N_WORKERS,
+        "output_dir": output_dir,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    with open(os.path.join(output_dir, "metadata.json"), "w") as fh:
+        json.dump(metadata, fh, indent=2, sort_keys=True)
+
 # ==========================================
 # 4. EXECUTION
 # ==========================================
 if __name__ == '__main__':
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    args = parse_args()
+    run_id = args.run_id or default_run_id()
+    OUTPUT_DIR = args.output_dir or os.path.join(OUTPUT_ROOT, run_id)
+    os.makedirs(OUTPUT_DIR, exist_ok=False)
+    write_run_metadata(OUTPUT_DIR, run_id)
+
     np.random.seed(42)
-    base_positions = np.random.rand(N_ATOMS, 2)
+    BASE_POSITIONS = np.random.rand(N_ATOMS, 2)
 
     expected_budget = len(PHI_SWEEP) * len(GAMMA_TARGETS) * POINT_WALL_TIME
     print(f"Warming up Numba JIT for N={N_ATOMS}...", flush=True)
+    print(f"Writing run data to {OUTPUT_DIR}", flush=True)
     print(
         f"Short sweep budget: {len(PHI_SWEEP)} phi x {len(GAMMA_TARGETS)} gamma x "
-        f"{POINT_WALL_TIME:.1f}s per point = {expected_budget:.1f}s "
+        f"2 solver runs x {FIRE_WALL_TIME:.1f}s per run = {expected_budget:.1f}s "
         f"(~{expected_budget / 60.0:.1f} min) plus JIT/render overhead.",
         flush=True,
     )
     dummy_r = np.sqrt((0.82 * BOX_SIZE**2) / (10 * np.pi))
-    _ = get_forces_cell_list_numba(base_positions[:10], np.ones(10), dummy_r, K_SPRING, BOX_SIZE)
-    _ = get_total_energy_cell_list_numba(base_positions[:10], dummy_r, K_SPRING, BOX_SIZE)
+    _ = get_forces_cell_list_numba(BASE_POSITIONS[:10], np.ones(10), dummy_r, K_SPRING, BOX_SIZE)
+    _ = get_total_energy_cell_list_numba(BASE_POSITIONS[:10], dummy_r, K_SPRING, BOX_SIZE)
 
     try:
+        tasks = []
         for phi_idx, phi in enumerate(PHI_SWEEP):
             current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
             k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
             
             print(f"\n[DENSITY PHASE {phi_idx+1}/{len(PHI_SWEEP)}] Evaluating phi = {phi:.2f}", flush=True)
             for gamma_target, grid in zip(GAMMA_TARGETS, k_values):
-                actual_gamma = (8 * current_radius * grid) / BOX_SIZE
-                point_t0 = time.time()
-                print(
-                    f"   -> Short point phi={phi:.2f}, target gamma={gamma_target:.2f}, "
-                    f"K={grid}x{grid}, actual gamma={actual_gamma:.3f}",
-                    flush=True,
-                )
-                e_hist_glob, dt_hist_glob, t_hist_glob, time_glob = run_global_fire(
-                    base_positions, MAX_STEPS, current_radius, FIRE_WALL_TIME
-                )
-                
-                e_hist_async, dt_hist_async, t_hist_async, time_async = run_async_fire(
-                    base_positions, MAX_STEPS, current_radius, grid, FIRE_WALL_TIME
-                )
-                
-                out_filename = f"{OUTPUT_DIR}/sweep_phi{phi:.2f}_grid{grid}.npz"
-                np.savez_compressed(out_filename, 
-                                    e_hist_async=e_hist_async, e_hist_glob=e_hist_glob,
-                                    t_hist_async=t_hist_async, t_hist_glob=t_hist_glob,
-                                    time_async=time_async, time_glob=time_glob,
-                                    grid_divs=grid, n_atoms=N_ATOMS, phi=phi,
-                                    gamma=actual_gamma, target_gamma=gamma_target,
-                                    point_time=time.time() - point_t0,
-                                    point_wall_time=POINT_WALL_TIME)
-                print(
-                    f"      saved {out_filename} in {time.time() - point_t0:.1f}s "
-                    f"(global {time_glob:.1f}s, async {time_async:.1f}s)",
-                    flush=True,
-                )
+                tasks.append((phi_idx, phi, gamma_target, grid, current_radius))
+        print(f"\nLaunching {len(tasks)} sweep points across {N_WORKERS} workers.", flush=True)
+        ctx = mp.get_context("fork")
+        with ctx.Pool(processes=N_WORKERS) as pool:
+            for out_filename in pool.imap_unordered(run_sweep_point, tasks):
+                print(f"Completed {out_filename}", flush=True)
                 
     except Exception as e:
         print(f"\nExecution interrupted: {e}", flush=True)
