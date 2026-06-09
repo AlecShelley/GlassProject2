@@ -2,19 +2,25 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-N_ATOMS = 2500000 
-PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
-GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
+# Legacy full Sherlock sweep:
+# N_ATOMS = 2500000
+# PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
+# GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
+
+N_ATOMS = 100000
+PHI_SWEEP = [0.82, 0.84, 0.86]
+GAMMA_TARGETS = [0.03, 0.05, 0.07]
 BOX_SIZE = 1.0
 
-def render_local_dashboard(data_dir="parameter_sweep_10x10"):
-    print(f"Scanning '{data_dir}/' for 100 arrays...")
+def render_local_dashboard(data_dir="parameter_sweep_3x3_short"):
+    expected_arrays = len(PHI_SWEEP) * len(GAMMA_TARGETS)
+    print(f"Scanning '{data_dir}/' for {expected_arrays} arrays...")
     
     speedup_matrix = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
     gamma_labels = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
     
     fig, axes = plt.subplots(len(PHI_SWEEP), len(GAMMA_TARGETS), figsize=(48, 40), sharex='col', sharey='row')
-    fig.suptitle(f"Async FIRE vs Global FIRE: 100-State Parameter Sweep (N={N_ATOMS})", fontsize=36, y=0.92)
+    fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={N_ATOMS})", fontsize=20, y=0.92)
     
     for i, phi in enumerate(PHI_SWEEP):
         current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
@@ -51,9 +57,9 @@ def render_local_dashboard(data_dir="parameter_sweep_10x10"):
                 ax.set_xticks([]); ax.set_yticks([])
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.90])
-    plt.savefig("FigS1_Massive_10x10_Dashboard.pdf", bbox_inches='tight')
+    plt.savefig("FigS1_Short_3x3_Dashboard.pdf", bbox_inches='tight')
     plt.close()
-    print("Massive 10x10 Dashboard saved.")
+    print("Short 3x3 dashboard saved.")
 
     # 2. GENERATE THE HEATMAP PHASE DIAGRAM
     plt.figure(figsize=(12, 8))
@@ -79,11 +85,11 @@ def render_local_dashboard(data_dir="parameter_sweep_10x10"):
             if not mask[row, col]:
                 ax.text(col, row, f"{masked_data[row, col]:.1f}", ha="center", va="center", color="black")
     
-    plt.title(f"Integrability Phase Diagram: Absolute Speedup (N={N_ATOMS})", fontsize=16)
+    plt.title(f"Short 3x3 Speedup Check (N={N_ATOMS})", fontsize=16)
     plt.xlabel(r"Boundary Friction Fraction ($\gamma$)", fontsize=14)
     plt.ylabel(r"Packing Fraction ($\phi$)", fontsize=14)
     
-    plt.savefig("Fig3_Speedup_Heatmap.pdf", bbox_inches='tight')
+    plt.savefig("Fig3_Short_3x3_Speedup_Heatmap.pdf", bbox_inches='tight')
     print("Optimization Heatmap saved.")
 
 if __name__ == '__main__':

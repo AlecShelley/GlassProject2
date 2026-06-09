@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=async_fire_10x10
+#SBATCH --job-name=async_fire_3x3_short
 #SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=32G
-#SBATCH --time=08:00:00
+#SBATCH --mem=16G
+#SBATCH --time=00:10:00
 #SBATCH --output=fire_run_%j.out
 #SBATCH --error=fire_run_%j.err
 
@@ -20,8 +20,8 @@ module load py-numba/0.59.1_py39
 module load viz
 module load py-matplotlib/3.7.1_py39
 
-echo "Starting 100-run Async FIRE Parameter Sweep on Sherlock..."
+echo "Starting 9-point short Async FIRE sweep on Sherlock..."
 cd "$SLURM_SUBMIT_DIR"
-python3 asynch_fire_compute.py
-python3 render_dashboard.py
+python3 -u asynch_fire_compute.py
+python3 -u render_dashboard.py
 echo "Job Complete."

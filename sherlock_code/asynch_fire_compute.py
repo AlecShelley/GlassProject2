@@ -8,7 +8,13 @@ from numba import njit
 # ==========================================
 # 1. SYSTEM PARAMETERS & SWEEP TARGETS
 # ==========================================
-N_ATOMS = 2500000  # Exascale limit
+# Legacy full Sherlock sweep:
+# N_ATOMS = 2500000
+# MAX_WALL_TIME = 120.0
+# PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
+# GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
+
+N_ATOMS = 100000
 BOX_SIZE = 1.0
 K_SPRING = 5000.0
 MASS = 1.0
@@ -20,15 +26,18 @@ F_INC = 1.1
 F_DEC = 0.5
 ALPHA_START = 0.1
 F_ALPHA = 0.99
-TOL = 1e-4
+TOL = -1.0
 
 MAX_STEPS = 100000        
 CAPTURE_STEP = 150  
-MAX_WALL_TIME = 120.0  
+POINT_WALL_TIME = 12.0
+FIRE_WALL_TIME = POINT_WALL_TIME / 2.0
+LOG_INTERVAL = 1
 
-# 10 Densities and 10 Boundary Fractions
-PHI_SWEEP = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.90]
-GAMMA_TARGETS = [0.01, 0.03, 0.05, 0.07, 0.10, 0.13, 0.16, 0.19, 0.22, 0.25]
+# Short 3x3 Sherlock smoke sweep. Middle values are phi=0.84 and gamma=0.05.
+PHI_SWEEP = [0.82, 0.84, 0.86]
+GAMMA_TARGETS = [0.03, 0.05, 0.07]
+OUTPUT_DIR = "parameter_sweep_3x3_short"
 
 # ==========================================
 # 2. NUMBA JIT-COMPILED CELL LIST PHYSICS 
@@ -135,7 +144,7 @@ def map_atoms_to_grid(pos, divs):
 # ==========================================
 # 3. TIMED FIRE ENGINES
 # ==========================================
-def run_global_fire(pos_init, max_steps, radius):
+def run_global_fire(pos_init, max_steps, radius, wall_time_limit):
     pos = np.copy(pos_init)
     vel = np.zeros_like(pos)
     dt = DT_INIT
@@ -145,13 +154,13 @@ def run_global_fire(pos_init, max_steps, radius):
     
     t0 = time.time()
     for step in range(max_steps):
-        if step % 10 == 0:
+        if step % LOG_INTERVAL == 0:
             elapsed = time.time() - t0
             e_curr = get_total_energy_cell_list_numba(pos, radius, K_SPRING, BOX_SIZE)
             energy_history.append(e_curr)
             dt_history.append(dt)
             time_history.append(elapsed)
-            if elapsed > MAX_WALL_TIME: break
+            if elapsed >= wall_time_limit: break
             
         atom_dt = np.full(N_ATOMS, dt)
         forces, forces_dt = get_forces_cell_list_numba(pos, atom_dt, radius, K_SPRING, BOX_SIZE)
@@ -187,7 +196,7 @@ def run_global_fire(pos_init, max_steps, radius):
             
     return np.array(energy_history), np.array(dt_history), np.array(time_history), time.time() - t0
 
-def run_async_fire(pos_init, max_steps, radius, grid_divs):
+def run_async_fire(pos_init, max_steps, radius, grid_divs, wall_time_limit):
     pos = np.copy(pos_init)
     vel = np.zeros_like(pos)
     n_domains = grid_divs * grid_divs
@@ -203,13 +212,13 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs):
     
     t0 = time.time()
     for step in range(max_steps):
-        if step % 10 == 0:
+        if step % LOG_INTERVAL == 0:
             elapsed = time.time() - t0
             e_current = get_total_energy_cell_list_numba(pos, radius, K_SPRING, BOX_SIZE)
             energy_history.append(e_current)
             dt_mean_history.append(np.mean(d_dt))
             time_history.append(elapsed)
-            if elapsed > MAX_WALL_TIME: break
+            if elapsed >= wall_time_limit: break
                 
         vel += 0.5 * forces_dt / MASS
         pos += vel * d_dt[atom_indices][:, np.newaxis]
@@ -248,11 +257,18 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs):
 # 4. EXECUTION
 # ==========================================
 if __name__ == '__main__':
-    os.makedirs("parameter_sweep_10x10", exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     np.random.seed(42)
     base_positions = np.random.rand(N_ATOMS, 2)
 
-    print(f"Warming up Numba JIT for N={N_ATOMS}...")
+    expected_budget = len(PHI_SWEEP) * len(GAMMA_TARGETS) * POINT_WALL_TIME
+    print(f"Warming up Numba JIT for N={N_ATOMS}...", flush=True)
+    print(
+        f"Short sweep budget: {len(PHI_SWEEP)} phi x {len(GAMMA_TARGETS)} gamma x "
+        f"{POINT_WALL_TIME:.1f}s per point = {expected_budget:.1f}s "
+        f"(~{expected_budget / 60.0:.1f} min) plus JIT/render overhead.",
+        flush=True,
+    )
     dummy_r = np.sqrt((0.82 * BOX_SIZE**2) / (10 * np.pi))
     _ = get_forces_cell_list_numba(base_positions[:10], np.ones(10), dummy_r, K_SPRING, BOX_SIZE)
     _ = get_total_energy_cell_list_numba(base_positions[:10], dummy_r, K_SPRING, BOX_SIZE)
@@ -261,31 +277,39 @@ if __name__ == '__main__':
         for phi_idx, phi in enumerate(PHI_SWEEP):
             current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
             k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
-            k_values = sorted(list(set(k_values)))
             
-            # Ensure unique grids if rounding overlaps
-            while len(k_values) < len(GAMMA_TARGETS):
-                k_values.append(k_values[-1] + 2)
-            k_values = k_values[:len(GAMMA_TARGETS)]
-            
-            print(f"\n[DENSITY PHASE {phi_idx+1}/{len(PHI_SWEEP)}] Evaluating phi = {phi:.2f}")
-            e_hist_glob, dt_hist_glob, t_hist_glob, time_glob = run_global_fire(base_positions, MAX_STEPS, current_radius)
-            
-            for grid in k_values:
+            print(f"\n[DENSITY PHASE {phi_idx+1}/{len(PHI_SWEEP)}] Evaluating phi = {phi:.2f}", flush=True)
+            for gamma_target, grid in zip(GAMMA_TARGETS, k_values):
                 actual_gamma = (8 * current_radius * grid) / BOX_SIZE
-                print(f"   -> Async FIRE K={grid}x{grid} (Gamma: {actual_gamma:.3f})...")
-                
-                e_hist_async, dt_hist_async, t_hist_async, time_async = run_async_fire(
-                    base_positions, MAX_STEPS, current_radius, grid
+                point_t0 = time.time()
+                print(
+                    f"   -> Short point phi={phi:.2f}, target gamma={gamma_target:.2f}, "
+                    f"K={grid}x{grid}, actual gamma={actual_gamma:.3f}",
+                    flush=True,
+                )
+                e_hist_glob, dt_hist_glob, t_hist_glob, time_glob = run_global_fire(
+                    base_positions, MAX_STEPS, current_radius, FIRE_WALL_TIME
                 )
                 
-                # ONLY save the analytical arrays (energies and times) - NO coordinates
-                out_filename = f"parameter_sweep_10x10/sweep_phi{phi:.2f}_grid{grid}.npz"
+                e_hist_async, dt_hist_async, t_hist_async, time_async = run_async_fire(
+                    base_positions, MAX_STEPS, current_radius, grid, FIRE_WALL_TIME
+                )
+                
+                out_filename = f"{OUTPUT_DIR}/sweep_phi{phi:.2f}_grid{grid}.npz"
                 np.savez_compressed(out_filename, 
                                     e_hist_async=e_hist_async, e_hist_glob=e_hist_glob,
                                     t_hist_async=t_hist_async, t_hist_glob=t_hist_glob,
                                     time_async=time_async, time_glob=time_glob,
-                                    grid_divs=grid, n_atoms=N_ATOMS, phi=phi, gamma=actual_gamma)
+                                    grid_divs=grid, n_atoms=N_ATOMS, phi=phi,
+                                    gamma=actual_gamma, target_gamma=gamma_target,
+                                    point_time=time.time() - point_t0,
+                                    point_wall_time=POINT_WALL_TIME)
+                print(
+                    f"      saved {out_filename} in {time.time() - point_t0:.1f}s "
+                    f"(global {time_glob:.1f}s, async {time_async:.1f}s)",
+                    flush=True,
+                )
                 
     except Exception as e:
-        print(f"\nExecution interrupted: {e}")
+        print(f"\nExecution interrupted: {e}", flush=True)
+        raise
