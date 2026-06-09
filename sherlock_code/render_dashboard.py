@@ -19,7 +19,7 @@ FONT = {
     "panel_title": 30,
     "axis_label": 32,
     "tick": 30,
-    "y_tick": 80,
+    "y_tick": 30,
     "legend": 28,
     "annotation": 30,
     "colorbar_label": 30,
@@ -95,7 +95,7 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, 
                     pad=20,
                 )
                 ax.tick_params(axis='x', labelsize=FONT["tick"], width=2, length=8)
-                ax.tick_params(axis='y', which='both', labelsize=FONT["y_tick"], width=4, length=14)
+                ax.tick_params(axis='y', which='both', labelsize=FONT["y_tick"], width=2, length=8)
                 ax.yaxis.get_offset_text().set_fontsize(FONT["y_tick"])
                 if i == len(PHI_SWEEP) - 1:
                     ax.set_xlabel("Wall Time (s)", fontsize=FONT["axis_label"], labelpad=18)
@@ -132,7 +132,7 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, 
     ax.set_xticklabels(x_labels, fontsize=FONT["tick"])
     ax.set_yticks(np.arange(len(y_labels)))
     ax.set_yticklabels(y_labels, fontsize=FONT["y_tick"])
-    ax.tick_params(axis='y', which='both', labelsize=FONT["y_tick"], width=4, length=14)
+    ax.tick_params(axis='y', which='both', labelsize=FONT["y_tick"], width=2, length=8)
 
     mask = np.ma.getmaskarray(masked_data)
     for row in range(masked_data.shape[0]):
