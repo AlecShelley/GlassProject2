@@ -10,7 +10,7 @@
 #
 
 #SBATCH --job-name=fire_comparison
-#SBATCH --partition=YOUR_PI_PARTITION        # <-- Replace with your PI's partition
+#SBATCH --partition=YOUR_PI_PARTITION
 #SBATCH --time=12:00:00                      # 12 hours (25 runs × 600s/run + overhead)
 #SBATCH --cpus-per-task=16                   # Numba prange threads — configurable
 #SBATCH --mem=32G
