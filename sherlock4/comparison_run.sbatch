@@ -10,14 +10,15 @@
 #
 
 #SBATCH --job-name=fire_comparison
-#SBATCH --partition=YOUR_PI_PARTITION
+#SBATCH --partition=normal
 #SBATCH --time=12:00:00                      # 12 hours (25 runs × 600s/run + overhead)
-#SBATCH --cpus-per-task=16                   # Numba prange threads — configurable
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8                    # Numba prange threads — configurable
+#SBATCH --mem=16G
 #SBATCH --output=fire_comparison_%j.out
 #SBATCH --error=fire_comparison_%j.err
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=YOUR_EMAIL@stanford.edu  # <-- Replace with your email
+#SBATCH --mail-type=NONE
+
+set -euo pipefail
 
 # ---- Pre-flight Validation ----
 ERRORS=0
@@ -56,13 +57,15 @@ for script in comparison_run_compute.py comparison_run_plot.py; do
 done
 
 # Load modules and validate each one
-module purge
+module --force purge
 
 REQUIRED_MODULES=(
-    "python/3.12.1"
-    "py-numpy/1.26.3_py312"
-    "py-numba/0.59.0_py312"
-    "py-scipy/1.12.0_py312"
+    "math"
+    "devel"
+    "py-numpy/1.24.2_py39"
+    "py-numba/0.59.1_py39"
+    "viz"
+    "py-matplotlib/3.7.1_py39"
 )
 
 for mod in "${REQUIRED_MODULES[@]}"; do
@@ -80,10 +83,10 @@ done
 
 # Verify Python can import required packages
 for pkg in numpy numba; do
-    if python -c "import ${pkg}" 2>/dev/null; then
-        echo "  OK: python import ${pkg}"
+    if python3 -c "import ${pkg}" 2>/dev/null; then
+        echo "  OK: python3 import ${pkg}"
     else
-        echo "FAIL: python cannot import '${pkg}'. Check module versions or use a conda env."
+        echo "FAIL: python3 cannot import '${pkg}'. Check module versions or use a conda env."
         ERRORS=$((ERRORS + 1))
     fi
 done
@@ -128,7 +131,7 @@ echo "Start time:    $(date)"
 echo "=============================================="
 
 # ---- Run Computation ----
-python comparison_run_compute.py \
+python3 -u comparison_run_compute.py \
     --cpus "${CPUS}" \
     --n-atoms "${N_ATOMS}" \
     --wall-time "${WALL_TIME}" \
@@ -138,7 +141,7 @@ echo ""
 echo "Compute finished at: $(date)"
 
 # ---- Generate Plots (headless) ----
-python comparison_run_plot.py "${OUTPUT_DIR}" --n-atoms "${N_ATOMS}"
+python3 -u comparison_run_plot.py "${OUTPUT_DIR}" --n-atoms "${N_ATOMS}"
 
 echo ""
 echo "All done. Results in: ${OUTPUT_DIR}"

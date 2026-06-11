@@ -179,7 +179,7 @@ def get_total_energy_cell_list_numba(pos, radius, k_spring, box_size):
     head, next_p, n_cells = build_cell_list(pos, box_size, cutoff)
     cell_size = box_size / n_cells
 
-    energy = 0.0
+    per_atom_energy = np.zeros(n_atoms)
     for i in prange(n_atoms):
         cx = int(pos[i, 0] / cell_size)
         cy = int(pos[i, 1] / cell_size)
@@ -208,9 +208,9 @@ def get_total_energy_cell_list_numba(pos, radius, k_spring, box_size):
                             local_energy += 0.5 * k_spring * (overlap ** 2)
                     j = next_p[j]
 
-        energy += local_energy
+        per_atom_energy[i] = local_energy
 
-    return energy
+    return np.sum(per_atom_energy)
 
 
 def map_atoms_to_grid(pos, divs):
