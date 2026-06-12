@@ -11,8 +11,8 @@
 
 #SBATCH --job-name=fire_comparison
 #SBATCH --partition=normal
-#SBATCH --time=12:00:00                      # 12 hours (25 runs × 600s/run + overhead)
-#SBATCH --cpus-per-task=8                    # Numba prange threads — configurable
+#SBATCH --time=07:00:00                      # 6 hours compute + JIT/plot/overshoot overhead
+#SBATCH --cpus-per-task=8                    # Worker processes — configurable
 #SBATCH --mem=16G
 #SBATCH --output=fire_comparison_%j.out
 #SBATCH --error=fire_comparison_%j.err
@@ -77,6 +77,11 @@ for mod in "${REQUIRED_MODULES[@]}"; do
     fi
 done
 
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+
 # If using a conda environment instead, comment out the modules above and use:
 # module load conda
 # conda activate your_env_name
@@ -103,9 +108,9 @@ echo ""
 
 # ---- Configurable Parameters ----
 # Override these at submit time with environment variables:
-#   sbatch --export=N_ATOMS=5000000,WALL_TIME=300 comparison_run.sbatch
+#   sbatch --export=N_ATOMS=5000000,WALL_TIME=720 comparison_run.sbatch
 N_ATOMS=${N_ATOMS:-1000000}
-WALL_TIME=${WALL_TIME:-600}
+WALL_TIME=${WALL_TIME:-720}
 CPUS=${SLURM_CPUS_PER_TASK}
 
 OUTPUT_DIR="${SCRATCH}/fire_comparison/${SLURM_JOB_ID}"
