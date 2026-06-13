@@ -31,15 +31,19 @@ def format_scientific_n(n):
 def safe_label(label):
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in label)
 
-def load_run_label(data_dir, run_label=None):
-    if run_label:
-        return run_label
+def load_run_metadata(data_dir):
     metadata_path = os.path.join(data_dir, "metadata.json")
     if os.path.exists(metadata_path):
         with open(metadata_path) as fh:
-            metadata = json.load(fh)
-        if "run_id" in metadata:
-            return metadata["run_id"]
+            return json.load(fh)
+    return {}
+
+def load_run_label(data_dir, run_label=None, metadata=None):
+    if run_label:
+        return run_label
+    metadata = metadata or load_run_metadata(data_dir)
+    if "run_id" in metadata:
+        return metadata["run_id"]
     return os.path.basename(os.path.normpath(data_dir))
 
 def find_sweep_file(data_dir, phi, gamma_target, grid):
@@ -52,25 +56,29 @@ def find_sweep_file(data_dir, phi, gamma_target, grid):
             return filename
     return candidates[0]
 
-def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, run_label=None):
-    expected_arrays = len(PHI_SWEEP) * len(GAMMA_TARGETS)
+def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, run_label=None, n_atoms=None):
+    metadata = load_run_metadata(data_dir)
+    n_atoms = int(n_atoms or metadata.get("n_atoms", N_ATOMS))
+    phi_sweep = metadata.get("phi_sweep", PHI_SWEEP)
+    gamma_targets = metadata.get("gamma_targets", GAMMA_TARGETS)
+    expected_arrays = len(phi_sweep) * len(gamma_targets)
     print(f"Scanning '{data_dir}/' for {expected_arrays} arrays...")
-    run_label = load_run_label(data_dir, run_label)
+    run_label = load_run_label(data_dir, run_label, metadata)
     plot_dir = plot_dir or os.path.join("plots", safe_label(run_label))
     os.makedirs(plot_dir, exist_ok=False)
     
-    speedup_matrix = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
-    gamma_labels = np.zeros((len(PHI_SWEEP), len(GAMMA_TARGETS)))
+    speedup_matrix = np.zeros((len(phi_sweep), len(gamma_targets)))
+    gamma_labels = np.zeros((len(phi_sweep), len(gamma_targets)))
     
-    fig, axes = plt.subplots(len(PHI_SWEEP), len(GAMMA_TARGETS), figsize=(48, 40), sharex='col', sharey='row')
-    n_label = format_scientific_n(N_ATOMS)
+    fig, axes = plt.subplots(len(phi_sweep), len(gamma_targets), figsize=(48, 40), sharex='col', sharey='row')
+    n_label = format_scientific_n(n_atoms)
     fig.suptitle(f"Async FIRE vs Global FIRE: 3x3 Short Sweep (N={n_label})", fontsize=FONT["suptitle"], y=0.94)
     
-    for i, phi in enumerate(PHI_SWEEP):
-        current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
-        k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
+    for i, phi in enumerate(phi_sweep):
+        current_radius = np.sqrt((phi * BOX_SIZE**2) / (n_atoms * np.pi))
+        k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in gamma_targets]
             
-        for j, (gamma_target, grid) in enumerate(zip(GAMMA_TARGETS, k_values)):
+        for j, (gamma_target, grid) in enumerate(zip(gamma_targets, k_values)):
             ax = axes[i, j]
             filename = find_sweep_file(data_dir, phi, gamma_target, grid)
             
@@ -97,7 +105,7 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, 
                 ax.tick_params(axis='x', labelsize=FONT["tick"], width=2, length=8)
                 ax.tick_params(axis='y', which='both', labelsize=FONT["y_tick"], width=2, length=8)
                 ax.yaxis.get_offset_text().set_fontsize(FONT["y_tick"])
-                if i == len(PHI_SWEEP) - 1:
+                if i == len(phi_sweep) - 1:
                     ax.set_xlabel("Wall Time (s)", fontsize=FONT["axis_label"], labelpad=18)
                 if j == 0:
                     ax.set_ylabel("Energy", fontsize=FONT["axis_label"], labelpad=18)
@@ -117,8 +125,8 @@ def render_local_dashboard(data_dir="parameter_sweep_3x3_short", plot_dir=None, 
 
     # 2. GENERATE THE HEATMAP PHASE DIAGRAM
     masked_data = np.ma.masked_invalid(np.flipud(speedup_matrix))
-    y_labels = [f"{p:.2f}" for p in reversed(PHI_SWEEP)]
-    x_labels = [f"{g:.2f}" for g in GAMMA_TARGETS]
+    y_labels = [f"{p:.2f}" for p in reversed(phi_sweep)]
+    x_labels = [f"{g:.2f}" for g in gamma_targets]
     
     fig, ax = plt.subplots(figsize=(16, 12))
     cmap = plt.colormaps["coolwarm"].copy()
@@ -155,8 +163,9 @@ def parse_args():
     parser.add_argument("--data-dir", default="parameter_sweep_3x3_short")
     parser.add_argument("--plot-dir", default=None)
     parser.add_argument("--run-label", default=None)
+    parser.add_argument("--n-atoms", type=int, default=None)
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = parse_args()
-    render_local_dashboard(args.data_dir, args.plot_dir, args.run_label)
+    render_local_dashboard(args.data_dir, args.plot_dir, args.run_label, args.n_atoms)

@@ -554,6 +554,21 @@ def run_sweep_point(task):
 def parse_args():
     parser = argparse.ArgumentParser(description="Run the 3x3 Async FIRE sweep.")
     parser.add_argument(
+        "--n-atoms",
+        type=int,
+        default=N_ATOMS,
+        help=f"Number of atoms to simulate. Defaults to {N_ATOMS}.",
+    )
+    parser.add_argument(
+        "--point-wall-time",
+        type=float,
+        default=POINT_WALL_TIME,
+        help=(
+            "Total wall-clock budget per 3x3 point, split evenly between "
+            f"global and async FIRE. Defaults to {POINT_WALL_TIME} seconds."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Fresh directory for this run's .npz outputs. Defaults to a timestamped run directory.",
@@ -588,6 +603,11 @@ def write_run_metadata(output_dir, run_id):
 # ==========================================
 if __name__ == '__main__':
     args = parse_args()
+    N_ATOMS = args.n_atoms
+    POINT_WALL_TIME = args.point_wall_time
+    FIRE_WALL_TIME = POINT_WALL_TIME / 2.0
+    N_WORKERS = len(PHI_SWEEP) * len(GAMMA_TARGETS)
+
     run_id = args.run_id or default_run_id()
     OUTPUT_DIR = args.output_dir or os.path.join(OUTPUT_ROOT, run_id)
     os.makedirs(OUTPUT_DIR, exist_ok=False)
