@@ -28,6 +28,7 @@ export NUMBA_NUM_THREADS=1
 
 N_ATOMS=${N_ATOMS:-10000000}
 POINT_WALL_TIME=${POINT_WALL_TIME:-120}
+GRID_DIVS=${GRID_DIVS:-}
 POINT_LABEL=$(printf "%.0f" "${POINT_WALL_TIME}")
 case "${N_ATOMS}" in
     1000000) N_LABEL="n1e6" ;;
@@ -35,21 +36,32 @@ case "${N_ATOMS}" in
     *) N_LABEL="n${N_ATOMS}" ;;
 esac
 
-RUN_ID="${N_LABEL}_3x3_${POINT_LABEL}s_${SLURM_JOB_ID}"
+if [ -n "${GRID_DIVS}" ]; then
+    GRID_LABEL="k${GRID_DIVS//,/-}"
+    RUN_ID="${N_LABEL}_${GRID_LABEL}_${POINT_LABEL}s_${SLURM_JOB_ID}"
+else
+    RUN_ID="${N_LABEL}_3x3_${POINT_LABEL}s_${SLURM_JOB_ID}"
+fi
 DATA_DIR="parameter_sweep_3x3_short_runs/${RUN_ID}"
 PLOT_DIR="plots/${RUN_ID}"
 
 echo "Starting 9-point Async FIRE sweep on Sherlock..."
 echo "N_ATOMS=${N_ATOMS}"
 echo "POINT_WALL_TIME=${POINT_WALL_TIME}"
+echo "GRID_DIVS=${GRID_DIVS:-gamma-target-mode}"
 echo "RUN_ID=${RUN_ID}"
 echo "DATA_DIR=${DATA_DIR}"
 echo "PLOT_DIR=${PLOT_DIR}"
 echo "Start: $(date)"
 cd "$SLURM_SUBMIT_DIR"
+GRID_ARGS=()
+if [ -n "${GRID_DIVS}" ]; then
+    GRID_ARGS=(--grid-divs "$GRID_DIVS")
+fi
 python3 -u asynch_fire_compute.py \
     --n-atoms "$N_ATOMS" \
     --point-wall-time "$POINT_WALL_TIME" \
+    "${GRID_ARGS[@]}" \
     --run-id "$RUN_ID" \
     --output-dir "$DATA_DIR"
 python3 -u render_dashboard.py \

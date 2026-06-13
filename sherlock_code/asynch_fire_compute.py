@@ -40,6 +40,7 @@ LOG_INTERVAL = 1
 # Short 3x3 Sherlock smoke sweep. Middle values are phi=0.84 and gamma=0.05.
 PHI_SWEEP = [0.82, 0.84, 0.86]
 GAMMA_TARGETS = [0.03, 0.05, 0.07]
+GRID_DIVS = None
 OUTPUT_ROOT = "parameter_sweep_3x3_short_runs"
 OUTPUT_DIR = None
 N_WORKERS = len(PHI_SWEEP) * len(GAMMA_TARGETS)
@@ -515,14 +516,21 @@ def run_async_fire(pos_init, max_steps, radius, grid_divs, wall_time_limit):
     return np.array(energy_history), np.array(dt_mean_history), np.array(time_history), time.time() - t0
 
 def run_sweep_point(task):
-    phi_idx, phi, gamma_target, grid, current_radius = task
+    phi_idx, phi, gamma_target, grid, current_radius, sweep_mode = task
     actual_gamma = (8 * current_radius * grid) / BOX_SIZE
     point_t0 = time.time()
-    print(
-        f"   -> Short point phi={phi:.2f}, target gamma={gamma_target:.2f}, "
-        f"K={grid}x{grid}, actual gamma={actual_gamma:.3f}",
-        flush=True,
-    )
+    if sweep_mode == "grid":
+        print(
+            f"   -> Fixed-K point phi={phi:.2f}, K={grid}x{grid}, "
+            f"actual gamma={actual_gamma:.3f}",
+            flush=True,
+        )
+    else:
+        print(
+            f"   -> Short point phi={phi:.2f}, target gamma={gamma_target:.2f}, "
+            f"K={grid}x{grid}, actual gamma={actual_gamma:.3f}",
+            flush=True,
+        )
     e_hist_glob, dt_hist_glob, t_hist_glob, time_glob = run_global_fire(
         BASE_POSITIONS, MAX_STEPS, current_radius, FIRE_WALL_TIME
     )
@@ -531,16 +539,19 @@ def run_sweep_point(task):
         BASE_POSITIONS, MAX_STEPS, current_radius, grid, FIRE_WALL_TIME
     )
     
-    out_filename = os.path.join(
-        OUTPUT_DIR,
-        f"sweep_phi{phi:.2f}_gamma{gamma_target:.2f}_grid{grid}.npz",
-    )
+    if sweep_mode == "grid":
+        out_basename = f"sweep_phi{phi:.2f}_grid{grid}.npz"
+    else:
+        out_basename = f"sweep_phi{phi:.2f}_gamma{gamma_target:.2f}_grid{grid}.npz"
+    out_filename = os.path.join(OUTPUT_DIR, out_basename)
     np.savez_compressed(out_filename, 
                         e_hist_async=e_hist_async, e_hist_glob=e_hist_glob,
                         t_hist_async=t_hist_async, t_hist_glob=t_hist_glob,
                         time_async=time_async, time_glob=time_glob,
                         grid_divs=grid, n_atoms=N_ATOMS, phi=phi,
-                        gamma=actual_gamma, target_gamma=gamma_target,
+                        gamma=actual_gamma,
+                        target_gamma=actual_gamma if sweep_mode == "grid" else gamma_target,
+                        sweep_mode=sweep_mode,
                         point_time=time.time() - point_t0,
                         point_wall_time=POINT_WALL_TIME,
                         fire_wall_time=FIRE_WALL_TIME)
@@ -550,6 +561,11 @@ def run_sweep_point(task):
         flush=True,
     )
     return out_filename
+
+def parse_int_csv(value):
+    if not value:
+        return None
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run the 3x3 Async FIRE sweep.")
@@ -569,6 +585,11 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--grid-divs",
+        default=None,
+        help="Comma-separated fixed K values to sweep, e.g. '2,3,5'. Defaults to gamma-target mode.",
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Fresh directory for this run's .npz outputs. Defaults to a timestamped run directory.",
@@ -583,18 +604,22 @@ def parse_args():
 def default_run_id():
     return os.environ.get("ASYNC_FIRE_RUN_ID") or time.strftime("run_%Y%m%d_%H%M%S")
 
-def write_run_metadata(output_dir, run_id):
+def write_run_metadata(output_dir, run_id, sweep_mode, gamma_targets, grid_divs):
     metadata = {
         "run_id": run_id,
         "n_atoms": N_ATOMS,
         "phi_sweep": PHI_SWEEP,
-        "gamma_targets": GAMMA_TARGETS,
+        "sweep_mode": sweep_mode,
         "point_wall_time": POINT_WALL_TIME,
         "fire_wall_time": FIRE_WALL_TIME,
         "n_workers": N_WORKERS,
         "output_dir": output_dir,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+    if sweep_mode == "grid":
+        metadata["grid_divs"] = grid_divs
+    else:
+        metadata["gamma_targets"] = gamma_targets
     with open(os.path.join(output_dir, "metadata.json"), "w") as fh:
         json.dump(metadata, fh, indent=2, sort_keys=True)
 
@@ -606,21 +631,24 @@ if __name__ == '__main__':
     N_ATOMS = args.n_atoms
     POINT_WALL_TIME = args.point_wall_time
     FIRE_WALL_TIME = POINT_WALL_TIME / 2.0
-    N_WORKERS = len(PHI_SWEEP) * len(GAMMA_TARGETS)
+    GRID_DIVS = parse_int_csv(args.grid_divs)
+    SWEEP_MODE = "grid" if GRID_DIVS else "gamma"
+    N_WORKERS = len(PHI_SWEEP) * len(GRID_DIVS if GRID_DIVS else GAMMA_TARGETS)
 
     run_id = args.run_id or default_run_id()
     OUTPUT_DIR = args.output_dir or os.path.join(OUTPUT_ROOT, run_id)
     os.makedirs(OUTPUT_DIR, exist_ok=False)
-    write_run_metadata(OUTPUT_DIR, run_id)
+    write_run_metadata(OUTPUT_DIR, run_id, SWEEP_MODE, GAMMA_TARGETS, GRID_DIVS)
 
     np.random.seed(42)
     BASE_POSITIONS = np.random.rand(N_ATOMS, 2)
 
-    expected_budget = len(PHI_SWEEP) * len(GAMMA_TARGETS) * POINT_WALL_TIME
+    sweep_count = len(GRID_DIVS if GRID_DIVS else GAMMA_TARGETS)
+    expected_budget = len(PHI_SWEEP) * sweep_count * POINT_WALL_TIME
     print(f"Warming up Numba JIT for N={N_ATOMS}...", flush=True)
     print(f"Writing run data to {OUTPUT_DIR}", flush=True)
     print(
-        f"Short sweep budget: {len(PHI_SWEEP)} phi x {len(GAMMA_TARGETS)} gamma x "
+        f"Short sweep budget: {len(PHI_SWEEP)} phi x {sweep_count} {SWEEP_MODE} x "
         f"2 solver runs x {FIRE_WALL_TIME:.1f}s per run = {expected_budget:.1f}s "
         f"(~{expected_budget / 60.0:.1f} min) plus JIT/render overhead.",
         flush=True,
@@ -654,11 +682,15 @@ if __name__ == '__main__':
         tasks = []
         for phi_idx, phi in enumerate(PHI_SWEEP):
             current_radius = np.sqrt((phi * BOX_SIZE**2) / (N_ATOMS * np.pi))
-            k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
-            
+
             print(f"\n[DENSITY PHASE {phi_idx+1}/{len(PHI_SWEEP)}] Evaluating phi = {phi:.2f}", flush=True)
-            for gamma_target, grid in zip(GAMMA_TARGETS, k_values):
-                tasks.append((phi_idx, phi, gamma_target, grid, current_radius))
+            if SWEEP_MODE == "grid":
+                for grid in GRID_DIVS:
+                    tasks.append((phi_idx, phi, None, grid, current_radius, SWEEP_MODE))
+            else:
+                k_values = [max(1, int(np.round(g * BOX_SIZE / (8 * current_radius)))) for g in GAMMA_TARGETS]
+                for gamma_target, grid in zip(GAMMA_TARGETS, k_values):
+                    tasks.append((phi_idx, phi, gamma_target, grid, current_radius, SWEEP_MODE))
         print(f"\nLaunching {len(tasks)} sweep points across {N_WORKERS} workers.", flush=True)
         ctx = mp.get_context("fork")
         with ctx.Pool(processes=N_WORKERS) as pool:
