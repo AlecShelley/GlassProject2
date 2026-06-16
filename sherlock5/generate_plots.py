@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone script to generate the 4 publication figures for the
-Async FIRE paper. No DOCX dependencies — only numpy + matplotlib.
+Standalone script to generate the 4 publication figures.
 
 Output: paper_figures/ directory with PNG + PDF for each figure.
 
