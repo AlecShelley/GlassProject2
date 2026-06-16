@@ -1,0 +1,15 @@
+cd $SCRATCH/fire
+  # array first                                                                                                                                   
+
+  sbatch sbatch_delayed_sweep.sh      # 6 parallel jobs, maps (D,K) space
+
+  sbatch sbatch_multiseed.sh          # 5 parallel jobs, robustness testing                                                                                                                          
+
+                                                      
+  # next                                                                                                                                                                         
+
+  sbatch sbatch_comparison_sweep.sh   # baseline parameter sweep
+
+  sbatch sbatch_reset_analysis.sh     # reset diagnostics                                                                                                                                            
+
+  sbatch sbatch_time_to_target.sh     # time-to-target curves
