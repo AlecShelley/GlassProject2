@@ -1,0 +1,22 @@
+{
+  "N": 1000000,
+  "phi": 0.82,
+  "K": 1,
+  "D": 1,
+  "seed": 42,
+  "energy_unit": 2.3433412102152483e-13,
+  "energy_per_n_lj": 3.321798422464125e-13,
+  "f_rms": 1.514956692160588e-08,
+  "fmax": 0.0,
+  "steps": 600,
+  "time_s": 48.65848970413208,
+  "status": "converged",
+  "history": [],
+  "params": {
+    "k_spring": 5000.0,
+    "max_steps": 500000,
+    "f_tol": 1e-06,
+    "dt_init": 0.001,
+    "dt_max": 0.01
+  }
+}
